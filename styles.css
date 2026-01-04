@@ -200,7 +200,10 @@ body{
   .add-form textarea{
     grid-column: 1 / -1;
   }
-  .add-form button{
+  .add-form .days-pick{
+    grid-column: 1 / -1;
+  }
+  .add-form button.btn{
     grid-column: 2 / 3;
     justify-self: end;
     width: fit-content;
@@ -221,6 +224,57 @@ body{
 .add-form select:focus,
 .add-form textarea:focus{
   border-color: color-mix(in srgb, var(--border), var(--accent) 55%);
+}
+
+/* Days picker */
+.days-pick{
+  border:1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: transparent;
+}
+.days-head{
+  display:flex;
+  justify-content: space-between;
+  align-items:center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.days-head-actions{
+  display:flex;
+  gap: 8px;
+  align-items:center;
+}
+.days-chips-wrap{
+  margin-top: 10px;
+}
+.days-chips-wrap.collapsed{
+  display:none;
+}
+.days-chips{
+  display:flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chip{
+  padding: 8px 10px;
+  border-radius: 999px;
+  border:1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor:pointer;
+  font-size: 13px;
+  user-select:none;
+}
+.chip.active{
+  background: color-mix(in srgb, var(--accent), transparent 85%);
+  border-color: color-mix(in srgb, var(--accent), var(--border) 30%);
+}
+.days-actions{
+  display:flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
 }
 
 /* List */
