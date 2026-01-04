@@ -1,13 +1,14 @@
-// Routine Tracker v3
+// Routine Tracker v4 (FIXED DAY-SPECIFIC ADD)
 // - Week starts Saturday (Sat..Fri)
 // - Weekend preset = Friday + Saturday
-// - When adding a task: default days = SELECTED day only
-//   If user expands picker and confirms, they can add to multiple days.
+// - IMPORTANT FIX:
+//   Default add = selected day ONLY
+//   Multi-day happens ONLY if user opens day picker and presses "Confirm days"
 // - Items are global (not week-specific)
 // - Completion is per day inside week buckets
 // - Streak per item = consecutive days done up to selected day (inclusive)
 
-const STORAGE_KEY = "routine_tracker_v3";
+const STORAGE_KEY = "routine_tracker_v4"; // changed to avoid old localStorage messing you up
 const DOW = ["Sat","Sun","Mon","Tue","Wed","Thu","Fri"];
 const CATEGORIES = ["Health", "Study", "Work"];
 
@@ -46,9 +47,10 @@ const els = {
 
 let activeFilter = "All";
 
-// For the Add form: selected days for the new task (Sat..Fri)
+// Day selection for the Add form
 let newTaskDays = [false,false,false,false,false,false,false];
-let userCustomizedDays = false; // if false, changing selected day resets to selected day only
+// This flag is THE fix: only if true we allow multi-day on add
+let daysSelectionConfirmed = false;
 
 function uid(){
   return Math.random().toString(16).slice(2) + Date.now().toString(16);
@@ -84,7 +86,6 @@ function formatRange(start){
   const opts = { year: "numeric", month: "short", day: "numeric" };
   return `${start.toLocaleDateString(undefined, opts)} → ${end.toLocaleDateString(undefined, opts)}`;
 }
-// Find the Saturday on/before a date
 function startOfWeekSaturday(date){
   const d = new Date(date);
   d.setHours(0,0,0,0);
@@ -93,18 +94,23 @@ function startOfWeekSaturday(date){
   d.setDate(d.getDate() - offset);
   return d;
 }
-
 function dayIndexFromISO(dayISO){
   const d = new Date(dayISO + "T00:00:00");
   const js = d.getDay(); // Sun=0 ... Sat=6
   return (js + 1) % 7;   // Sat=0, Sun=1, Mon=2, ... Fri=6
 }
 
-function setDefaultDaysToSelected(){
+function selectedDayOnlyMask(){
   const idx = dayIndexFromISO(state.selectedISO);
-  newTaskDays = [false,false,false,false,false,false,false];
-  newTaskDays[idx] = true;
-  userCustomizedDays = false;
+  const arr = [false,false,false,false,false,false,false];
+  arr[idx] = true;
+  return arr;
+}
+
+function resetAddDaysToSelectedOnly(){
+  newTaskDays = selectedDayOnlyMask();
+  daysSelectionConfirmed = false;
+  renderDayChips();
 }
 
 // --- State
@@ -117,11 +123,7 @@ function defaultState(){
     theme: "dark",
     weekStartISO: toISODate(ws),
     selectedISO: todayISO,
-    items: [
-      { id: uid(), name: "Walk 30 min", category: "Health", desc: "Easy pace. If busy: 10 minutes is fine.", days: [false,false,true,false,false,false,false] }, // default Mon
-      { id: uid(), name: "Read 20 min", category: "Study", desc: "Any book/article. Just keep it consistent.", days: [false,false,true,true,true,true,false] }, // Mon-Thu
-      { id: uid(), name: "Deep work 45 min", category: "Work", desc: "No phone. One task only.", days: [false,true,true,true,true,true,false] } // Sun-Thu
-    ],
+    items: [],
     completion: {}, // completion[weekStartISO][dayISO][itemId] = true
     ui: { openDescByItemId: {} }
   };
@@ -148,25 +150,22 @@ applyTheme();
 function ensureWeekBucket(weekStartISO){
   if(!state.completion[weekStartISO]) state.completion[weekStartISO] = {};
 }
-
-// For current UI week/selected day
 function getCompletionForSelectedWeekDay(dayISO){
   ensureWeekBucket(state.weekStartISO);
   const week = state.completion[state.weekStartISO];
   if(!week[dayISO]) week[dayISO] = {};
   return week[dayISO];
 }
-
 function setItemDone(dayISO, itemId, done){
   const map = getCompletionForSelectedWeekDay(dayISO);
   if(done) map[itemId] = true;
   else delete map[itemId];
   saveState(state);
   renderProgressOnly();
-  renderListOnly(); // update streak badges live
+  renderListOnly();
 }
 
-// Global lookup: is item done on a specific dayISO (across any week)
+// Global lookup for streak
 function isDoneOnDay(itemId, dayISO){
   const d = new Date(dayISO + "T00:00:00");
   const ws = startOfWeekSaturday(d);
@@ -177,20 +176,15 @@ function isDoneOnDay(itemId, dayISO){
   if(!dayMap) return false;
   return !!dayMap[itemId];
 }
-
-// Streak: consecutive days done up to selected day (inclusive)
 function streakForItem(itemId, upToDayISO){
   let streak = 0;
   let cursor = new Date(upToDayISO + "T00:00:00");
-
   while(true){
     const iso = toISODate(cursor);
     if(isDoneOnDay(itemId, iso)){
       streak += 1;
       cursor = addDays(cursor, -1);
-    }else{
-      break;
-    }
+    }else break;
   }
   return streak;
 }
@@ -203,31 +197,25 @@ function setWeekStart(date){
   const ws = startOfWeekSaturday(date);
   state.weekStartISO = toISODate(ws);
 
-  // keep selected day inside this week
   const sel = new Date(state.selectedISO + "T00:00:00");
   const start = ws;
   const end = addDays(ws, 6);
   if(sel < start || sel > end){
-    state.selectedISO = state.weekStartISO; // select Saturday
+    state.selectedISO = state.weekStartISO;
   }
 
-  // reset default add-days if user didn't customize
-  if(!userCustomizedDays){
-    setDefaultDaysToSelected();
-    renderDayChips();
-  }
+  // reset add-days to selected only (you asked for this behavior)
+  resetAddDaysToSelectedOnly();
 
   saveState(state);
   render();
 }
-
 function setSelectedDay(iso){
   state.selectedISO = iso;
 
-  if(!userCustomizedDays){
-    setDefaultDaysToSelected();
-    renderDayChips();
-  }
+  // reset add-days to selected only unless user is currently in "confirmed multi-day mode"
+  // your requirement: add should be day-specific by default, always.
+  resetAddDaysToSelectedOnly();
 
   saveState(state);
   render();
@@ -243,24 +231,23 @@ function escapeHtml(str){
     .replaceAll("'", "&#039;");
 }
 
-// Filtering: day schedule + category
-function filteredItems(){
+// Filter: scheduled for selected day + category
+function itemsForSelectedDay(){
   const dayIdx = dayIndexFromISO(state.selectedISO);
-
-  // by day schedule first
-  let items = state.items.filter(it => (it.days?.[dayIdx] ?? true));
-
-  // then by category
+  let items = state.items.filter(it => (it.days?.[dayIdx] === true));
   if(activeFilter !== "All"){
     items = items.filter(it => it.category === activeFilter);
   }
   return items;
 }
 
-function dayProgress(dayISO){
-  // progress is based on ALL items scheduled for that day (ignores category filter)
+function scheduledItemsCountForDay(dayISO){
   const dayIdx = dayIndexFromISO(dayISO);
-  const scheduled = state.items.filter(it => (it.days?.[dayIdx] ?? true));
+  return state.items.filter(it => (it.days?.[dayIdx] === true));
+}
+
+function dayProgress(dayISO){
+  const scheduled = scheduledItemsCountForDay(dayISO);
   const total = scheduled.length;
   if(total === 0) return { done: 0, total: 0 };
 
@@ -307,7 +294,7 @@ function renderDays(){
   });
 }
 
-// Days chips (add form)
+// Days chips UI
 function renderDayChips(){
   if(!els.daysChips) return;
   els.daysChips.innerHTML = "";
@@ -316,10 +303,9 @@ function renderDayChips(){
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "chip" + (newTaskDays[i] ? " active" : "");
-    chip.textContent = DOW[i]; // Sat..Fri
+    chip.textContent = DOW[i];
     chip.addEventListener("click", () => {
       newTaskDays[i] = !newTaskDays[i];
-      userCustomizedDays = true;
       renderDayChips();
     });
     els.daysChips.appendChild(chip);
@@ -330,7 +316,7 @@ function renderDayChips(){
 function renderListOnly(){
   const dayISO = state.selectedISO;
   const map = getCompletionForSelectedWeekDay(dayISO);
-  const items = filteredItems();
+  const items = itemsForSelectedDay();
 
   els.routineList.innerHTML = "";
 
@@ -378,14 +364,13 @@ function renderListOnly(){
     });
 
     // Toggle description
-    const toggleBtn = card.querySelector(".toggle");
-    toggleBtn.addEventListener("click", () => {
+    card.querySelector(".toggle").addEventListener("click", () => {
       state.ui.openDescByItemId[it.id] = !state.ui.openDescByItemId[it.id];
       saveState(state);
       renderListOnly();
     });
 
-    // Edit (name/category/desc/days)
+    // Edit
     const editBtn = card.querySelectorAll("button")[1];
     editBtn.addEventListener("click", () => {
       const newName = prompt("Edit task name:", it.name);
@@ -404,9 +389,9 @@ function renderListOnly(){
       const newDesc = prompt("Edit description:", it.desc || "");
       if(newDesc === null) return;
 
-      // Days editing via simple prompt: e.g. "Sat,Mon,Wed" or "All"
+      // Days editing (simple): "Sat,Mon" or "Fri,Sat" or "All"
       const newDays = prompt(
-        'Edit days (examples: "Sat,Mon,Wed" OR "All" OR "Fri,Sat"):',
+        'Edit days (examples: "Sat,Mon,Wed" OR "Fri,Sat" OR "All"):',
         daysToText(it.days)
       );
       if(newDays === null) return;
@@ -431,10 +416,8 @@ function renderListOnly(){
     delBtn.addEventListener("click", () => {
       if(!confirm(`Delete "${it.name}"?`)) return;
 
-      // remove item
       state.items = state.items.filter(x => x.id !== it.id);
 
-      // remove from completion maps
       for(const ws of Object.keys(state.completion)){
         const week = state.completion[ws];
         for(const day of Object.keys(week)){
@@ -456,9 +439,7 @@ function daysToText(daysArr){
   if(!Array.isArray(daysArr) || daysArr.length !== 7) return "All";
   if(daysArr.every(Boolean)) return "All";
   const picks = [];
-  for(let i=0;i<7;i++){
-    if(daysArr[i]) picks.push(DOW[i]);
-  }
+  for(let i=0;i<7;i++) if(daysArr[i]) picks.push(DOW[i]);
   return picks.join(",");
 }
 
@@ -509,7 +490,172 @@ els.toggleDays?.addEventListener("click", () => {
   els.daysChipsWrap.classList.remove("collapsed");
   els.confirmDays.style.display = "inline-block";
   els.toggleDays.style.display = "none";
+
+  // allow editing multiple days now (still not applied unless confirmed)
+  daysSelectionConfirmed = false;
 });
 
 els.confirmDays?.addEventListener("click", () => {
-  if(!newTaskDay
+  if(!newTaskDays.some(Boolean)){
+    alert("Pick at least one day.");
+    return;
+  }
+
+  // once confirmed, this is the only way multi-day applies
+  daysSelectionConfirmed = true;
+
+  els.daysChipsWrap.classList.add("collapsed");
+  els.confirmDays.style.display = "none";
+  els.toggleDays.style.display = "inline-block";
+});
+
+// Presets (Saudi weekend = Fri + Sat)
+els.daysAll?.addEventListener("click", () => {
+  newTaskDays = [true,true,true,true,true,true,true];
+  renderDayChips();
+});
+els.daysNone?.addEventListener("click", () => {
+  newTaskDays = [false,false,false,false,false,false,false];
+  renderDayChips();
+});
+// Weekdays = Sun..Thu
+els.daysWeekdays?.addEventListener("click", () => {
+  newTaskDays = [false,true,true,true,true,true,false];
+  renderDayChips();
+});
+// Weekend = Fri + Sat
+els.daysWeekend?.addEventListener("click", () => {
+  newTaskDays = [true,false,false,false,false,false,true];
+  renderDayChips();
+});
+
+// Add item (THE FIX is here)
+els.addForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const name = els.newItemInput.value.trim();
+  const category = els.newItemCategory.value;
+  const desc = els.newItemDesc.value.trim();
+  if(!name) return;
+
+  // If user did NOT confirm multi-day, FORCE selected-day-only
+  const days = daysSelectionConfirmed ? [...newTaskDays] : selectedDayOnlyMask();
+
+  // safety
+  if(!days.some(Boolean)){
+    alert("Pick at least one day.");
+    return;
+  }
+
+  state.items.unshift({ id: uid(), name, category, desc, days });
+
+  els.newItemInput.value = "";
+  els.newItemDesc.value = "";
+
+  // reset add-days back to selected day only
+  resetAddDaysToSelectedOnly();
+
+  // close picker
+  els.daysChipsWrap.classList.add("collapsed");
+  els.confirmDays.style.display = "none";
+  els.toggleDays.style.display = "inline-block";
+
+  saveState(state);
+  render();
+});
+
+// Week navigation
+els.prevWeek.addEventListener("click", () => setWeekStart(addDays(getWeekStartDate(), -7)));
+els.nextWeek.addEventListener("click", () => setWeekStart(addDays(getWeekStartDate(), 7)));
+
+els.resetWeek.addEventListener("click", () => {
+  if(!confirm("Reset all checkmarks for this week only?")) return;
+  state.completion[state.weekStartISO] = {};
+  saveState(state);
+  render();
+});
+
+// Theme toggle
+els.toggleTheme.addEventListener("click", () => {
+  state.theme = (state.theme === "dark") ? "light" : "dark";
+  saveState(state);
+  applyTheme();
+});
+
+// Export / Import
+els.exportJson.addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "routine-tracker-export.json";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+});
+
+els.importFile.addEventListener("change", async () => {
+  const file = els.importFile.files?.[0];
+  if(!file) return;
+
+  try{
+    const text = await file.text();
+    const imported = JSON.parse(text);
+
+    if(!imported || typeof imported !== "object") throw new Error("Invalid JSON");
+    if(!Array.isArray(imported.items)) throw new Error("Missing items array");
+    if(typeof imported.completion !== "object") throw new Error("Missing completion object");
+
+    state = {
+      theme: imported.theme === "light" ? "light" : "dark",
+      weekStartISO: imported.weekStartISO || toISODate(startOfWeekSaturday(new Date())),
+      selectedISO: imported.selectedISO || imported.weekStartISO || toISODate(new Date()),
+      items: imported.items.map(it => ({
+        id: it.id || uid(),
+        name: String(it.name || "").trim() || "Untitled",
+        category: CATEGORIES.includes(it.category) ? it.category : "Health",
+        desc: typeof it.desc === "string" ? it.desc : "",
+        days: Array.isArray(it.days) && it.days.length === 7 ? it.days.map(Boolean) : [true,true,true,true,true,true,true]
+      })),
+      completion: imported.completion || {},
+      ui: imported.ui && typeof imported.ui === "object" ? imported.ui : { openDescByItemId: {} }
+    };
+
+    if(!state.ui.openDescByItemId) state.ui.openDescByItemId = {};
+
+    saveState(state);
+    applyTheme();
+
+    resetAddDaysToSelectedOnly();
+    render();
+
+    alert("Import successful.");
+  }catch(err){
+    alert("Import failed: " + (err?.message || "Unknown error"));
+  }finally{
+    els.importFile.value = "";
+  }
+});
+
+// Init
+(function init(){
+  if(!state.ui) state.ui = { openDescByItemId: {} };
+  if(!state.ui.openDescByItemId) state.ui.openDescByItemId = {};
+  if(!state.weekStartISO) state.weekStartISO = toISODate(startOfWeekSaturday(new Date()));
+  if(!state.selectedISO) state.selectedISO = state.weekStartISO;
+
+  // normalize items
+  state.items = (state.items || []).map(it => ({
+    id: it.id || uid(),
+    name: it.name || "Untitled",
+    category: CATEGORIES.includes(it.category) ? it.category : "Health",
+    desc: typeof it.desc === "string" ? it.desc : "",
+    days: Array.isArray(it.days) && it.days.length === 7 ? it.days.map(Boolean) : [true,true,true,true,true,true,true]
+  }));
+
+  resetAddDaysToSelectedOnly();
+
+  saveState(state);
+  render();
+})();
+
