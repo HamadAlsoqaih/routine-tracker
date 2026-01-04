@@ -76,6 +76,29 @@
 
             <textarea id="newItemDesc" rows="2" placeholder="Description (optional)"></textarea>
 
+            <!-- Days picker: default = selected day only -->
+            <div class="days-pick" aria-label="Days picker">
+              <div class="days-head">
+                <div class="muted">Repeat on</div>
+
+                <div class="days-head-actions">
+                  <button class="small-btn ghost" id="toggleDays" type="button">Add more days</button>
+                  <button class="small-btn" id="confirmDays" type="button" style="display:none;">Confirm days</button>
+                </div>
+              </div>
+
+              <div class="days-chips-wrap collapsed" id="daysChipsWrap">
+                <div class="days-chips" id="daysChips"></div>
+
+                <div class="days-actions">
+                  <button class="small-btn ghost" id="daysAll" type="button">All</button>
+                  <button class="small-btn ghost" id="daysNone" type="button">None</button>
+                  <button class="small-btn ghost" id="daysWeekdays" type="button">Weekdays</button>
+                  <button class="small-btn ghost" id="daysWeekend" type="button">Weekend</button>
+                </div>
+              </div>
+            </div>
+
             <button class="btn" type="submit">Add</button>
           </form>
         </div>
@@ -83,7 +106,7 @@
         <div class="list" id="routineList" aria-label="Routine list"></div>
 
         <div class="hint">
-          Tip: Select a day, then check items for that day. Streak = consecutive days done up to selected day.
+          Tip: Select a day, add tasks for that day. Streak = consecutive days done up to selected day.
         </div>
       </section>
     </main>
