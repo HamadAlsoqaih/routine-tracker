@@ -1,9 +1,13 @@
-// Routine Tracker v2
-// Week starts Saturday. Items are global (same across weeks).
-// Completion stored per-weekStartISO -> dayISO -> itemId.
-// Streak per item = consecutive days completed up to the SELECTED day.
+// Routine Tracker v3
+// - Week starts Saturday (Sat..Fri)
+// - Weekend preset = Friday + Saturday
+// - When adding a task: default days = SELECTED day only
+//   If user expands picker and confirms, they can add to multiple days.
+// - Items are global (not week-specific)
+// - Completion is per day inside week buckets
+// - Streak per item = consecutive days done up to selected day (inclusive)
 
-const STORAGE_KEY = "routine_tracker_v2";
+const STORAGE_KEY = "routine_tracker_v3";
 const DOW = ["Sat","Sun","Mon","Tue","Wed","Thu","Fri"];
 const CATEGORIES = ["Health", "Study", "Work"];
 
@@ -20,6 +24,17 @@ const els = {
   newItemCategory: document.getElementById("newItemCategory"),
   newItemDesc: document.getElementById("newItemDesc"),
 
+  // days picker
+  daysChipsWrap: document.getElementById("daysChipsWrap"),
+  toggleDays: document.getElementById("toggleDays"),
+  confirmDays: document.getElementById("confirmDays"),
+
+  daysChips: document.getElementById("daysChips"),
+  daysAll: document.getElementById("daysAll"),
+  daysNone: document.getElementById("daysNone"),
+  daysWeekdays: document.getElementById("daysWeekdays"),
+  daysWeekend: document.getElementById("daysWeekend"),
+
   prevWeek: document.getElementById("prevWeek"),
   nextWeek: document.getElementById("nextWeek"),
   resetWeek: document.getElementById("resetWeek"),
@@ -30,6 +45,10 @@ const els = {
 };
 
 let activeFilter = "All";
+
+// For the Add form: selected days for the new task (Sat..Fri)
+let newTaskDays = [false,false,false,false,false,false,false];
+let userCustomizedDays = false; // if false, changing selected day resets to selected day only
 
 function uid(){
   return Math.random().toString(16).slice(2) + Date.now().toString(16);
@@ -75,22 +94,36 @@ function startOfWeekSaturday(date){
   return d;
 }
 
+function dayIndexFromISO(dayISO){
+  const d = new Date(dayISO + "T00:00:00");
+  const js = d.getDay(); // Sun=0 ... Sat=6
+  return (js + 1) % 7;   // Sat=0, Sun=1, Mon=2, ... Fri=6
+}
+
+function setDefaultDaysToSelected(){
+  const idx = dayIndexFromISO(state.selectedISO);
+  newTaskDays = [false,false,false,false,false,false,false];
+  newTaskDays[idx] = true;
+  userCustomizedDays = false;
+}
+
+// --- State
 function defaultState(){
   const today = new Date();
   const ws = startOfWeekSaturday(today);
+  const todayISO = toISODate(today);
+
   return {
     theme: "dark",
     weekStartISO: toISODate(ws),
-    selectedISO: toISODate(today),
+    selectedISO: todayISO,
     items: [
-      { id: uid(), name: "Walk 30 min", category: "Health", desc: "Easy pace. If busy: 10 minutes is fine." },
-      { id: uid(), name: "Read 20 min", category: "Study", desc: "Any book/article. Just keep it consistent." },
-      { id: uid(), name: "Deep work 45 min", category: "Work", desc: "No phone. One task only." }
+      { id: uid(), name: "Walk 30 min", category: "Health", desc: "Easy pace. If busy: 10 minutes is fine.", days: [false,false,true,false,false,false,false] }, // default Mon
+      { id: uid(), name: "Read 20 min", category: "Study", desc: "Any book/article. Just keep it consistent.", days: [false,false,true,true,true,true,false] }, // Mon-Thu
+      { id: uid(), name: "Deep work 45 min", category: "Work", desc: "No phone. One task only.", days: [false,true,true,true,true,true,false] } // Sun-Thu
     ],
     completion: {}, // completion[weekStartISO][dayISO][itemId] = true
-    ui: {
-      openDescByItemId: {} // remember which descriptions are open
-    }
+    ui: { openDescByItemId: {} }
   };
 }
 
@@ -115,16 +148,17 @@ applyTheme();
 function ensureWeekBucket(weekStartISO){
   if(!state.completion[weekStartISO]) state.completion[weekStartISO] = {};
 }
-function getCompletionForDay(dayISO){
-  // dayISO belongs to some weekStart, but our UI writes completion under CURRENT weekStartISO only.
-  // For streaks we need global lookup, so we keep this for selected day (current week UI):
+
+// For current UI week/selected day
+function getCompletionForSelectedWeekDay(dayISO){
   ensureWeekBucket(state.weekStartISO);
   const week = state.completion[state.weekStartISO];
   if(!week[dayISO]) week[dayISO] = {};
   return week[dayISO];
 }
+
 function setItemDone(dayISO, itemId, done){
-  const map = getCompletionForDay(dayISO);
+  const map = getCompletionForSelectedWeekDay(dayISO);
   if(done) map[itemId] = true;
   else delete map[itemId];
   saveState(state);
@@ -176,31 +210,69 @@ function setWeekStart(date){
   if(sel < start || sel > end){
     state.selectedISO = state.weekStartISO; // select Saturday
   }
+
+  // reset default add-days if user didn't customize
+  if(!userCustomizedDays){
+    setDefaultDaysToSelected();
+    renderDayChips();
+  }
+
   saveState(state);
   render();
 }
+
 function setSelectedDay(iso){
   state.selectedISO = iso;
+
+  if(!userCustomizedDays){
+    setDefaultDaysToSelected();
+    renderDayChips();
+  }
+
   saveState(state);
   render();
+}
+
+// UI helpers
+function escapeHtml(str){
+  return String(str)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+// Filtering: day schedule + category
+function filteredItems(){
+  const dayIdx = dayIndexFromISO(state.selectedISO);
+
+  // by day schedule first
+  let items = state.items.filter(it => (it.days?.[dayIdx] ?? true));
+
+  // then by category
+  if(activeFilter !== "All"){
+    items = items.filter(it => it.category === activeFilter);
+  }
+  return items;
 }
 
 function dayProgress(dayISO){
-  const visibleItems = filteredItems();
-  const total = visibleItems.length;
+  // progress is based on ALL items scheduled for that day (ignores category filter)
+  const dayIdx = dayIndexFromISO(dayISO);
+  const scheduled = state.items.filter(it => (it.days?.[dayIdx] ?? true));
+  const total = scheduled.length;
   if(total === 0) return { done: 0, total: 0 };
 
-  // progress should consider ALL items, not only filtered?
-  // You didn’t specify. I’m using ALL items (more accurate).
-  const allTotal = state.items.length;
-  const map = getCompletionForDay(dayISO);
+  const map = getCompletionForSelectedWeekDay(dayISO);
   let done = 0;
-  for(const it of state.items){
+  for(const it of scheduled){
     if(map[it.id]) done++;
   }
-  return { done, total: allTotal };
+  return { done, total };
 }
 
+// Render days
 function renderDays(){
   els.daysRow.innerHTML = "";
   const start = getWeekStartDate();
@@ -235,24 +307,29 @@ function renderDays(){
   });
 }
 
-function escapeHtml(str){
-  return String(str)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+// Days chips (add form)
+function renderDayChips(){
+  if(!els.daysChips) return;
+  els.daysChips.innerHTML = "";
+
+  for(let i=0;i<7;i++){
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chip" + (newTaskDays[i] ? " active" : "");
+    chip.textContent = DOW[i]; // Sat..Fri
+    chip.addEventListener("click", () => {
+      newTaskDays[i] = !newTaskDays[i];
+      userCustomizedDays = true;
+      renderDayChips();
+    });
+    els.daysChips.appendChild(chip);
+  }
 }
 
-// Filtering
-function filteredItems(){
-  if(activeFilter === "All") return state.items;
-  return state.items.filter(it => it.category === activeFilter);
-}
-
+// Render routine list
 function renderListOnly(){
   const dayISO = state.selectedISO;
-  const map = getCompletionForDay(dayISO);
+  const map = getCompletionForSelectedWeekDay(dayISO);
   const items = filteredItems();
 
   els.routineList.innerHTML = "";
@@ -260,7 +337,7 @@ function renderListOnly(){
   if(items.length === 0){
     const empty = document.createElement("div");
     empty.className = "muted";
-    empty.textContent = "No items in this category. Add one above or switch filter.";
+    empty.textContent = "No tasks scheduled for this day (or this category).";
     els.routineList.appendChild(empty);
     return;
   }
@@ -308,7 +385,7 @@ function renderListOnly(){
       renderListOnly();
     });
 
-    // Edit
+    // Edit (name/category/desc/days)
     const editBtn = card.querySelectorAll("button")[1];
     editBtn.addEventListener("click", () => {
       const newName = prompt("Edit task name:", it.name);
@@ -327,9 +404,23 @@ function renderListOnly(){
       const newDesc = prompt("Edit description:", it.desc || "");
       if(newDesc === null) return;
 
+      // Days editing via simple prompt: e.g. "Sat,Mon,Wed" or "All"
+      const newDays = prompt(
+        'Edit days (examples: "Sat,Mon,Wed" OR "All" OR "Fri,Sat"):',
+        daysToText(it.days)
+      );
+      if(newDays === null) return;
+
+      const parsed = parseDaysInput(newDays);
+      if(!parsed){
+        alert('Invalid days. Use "All" or comma-separated days like: Sat,Sun,Mon...');
+        return;
+      }
+
       it.name = name;
       it.category = cat;
       it.desc = newDesc.trim();
+      it.days = parsed;
 
       saveState(state);
       render();
@@ -351,7 +442,6 @@ function renderListOnly(){
         }
       }
 
-      // remove ui open state
       delete state.ui.openDescByItemId[it.id];
 
       saveState(state);
@@ -360,6 +450,33 @@ function renderListOnly(){
 
     els.routineList.appendChild(card);
   }
+}
+
+function daysToText(daysArr){
+  if(!Array.isArray(daysArr) || daysArr.length !== 7) return "All";
+  if(daysArr.every(Boolean)) return "All";
+  const picks = [];
+  for(let i=0;i<7;i++){
+    if(daysArr[i]) picks.push(DOW[i]);
+  }
+  return picks.join(",");
+}
+
+function parseDaysInput(input){
+  const s = String(input || "").trim();
+  if(!s) return null;
+  if(/^all$/i.test(s)) return [true,true,true,true,true,true,true];
+
+  const parts = s.split(",").map(x => x.trim()).filter(Boolean);
+  if(parts.length === 0) return null;
+
+  const days = [false,false,false,false,false,false,false];
+  for(const p of parts){
+    const idx = DOW.findIndex(d => d.toLowerCase() === p.toLowerCase());
+    if(idx === -1) return null;
+    days[idx] = true;
+  }
+  return days.some(Boolean) ? days : null;
 }
 
 function renderProgressOnly(){
@@ -387,111 +504,12 @@ document.querySelectorAll(".pill").forEach(btn => {
   });
 });
 
-// Add item
-els.addForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  const name = els.newItemInput.value.trim();
-  const category = els.newItemCategory.value;
-  const desc = els.newItemDesc.value.trim();
-
-  if(!name) return;
-
-  state.items.unshift({ id: uid(), name, category, desc });
-  els.newItemInput.value = "";
-  els.newItemDesc.value = "";
-  saveState(state);
-  render();
+// Days picker behavior
+els.toggleDays?.addEventListener("click", () => {
+  els.daysChipsWrap.classList.remove("collapsed");
+  els.confirmDays.style.display = "inline-block";
+  els.toggleDays.style.display = "none";
 });
 
-// Week navigation
-els.prevWeek.addEventListener("click", () => {
-  setWeekStart(addDays(getWeekStartDate(), -7));
-});
-els.nextWeek.addEventListener("click", () => {
-  setWeekStart(addDays(getWeekStartDate(), 7));
-});
-els.resetWeek.addEventListener("click", () => {
-  if(!confirm("Reset all checkmarks for this week only?")) return;
-  const ws = state.weekStartISO;
-  state.completion[ws] = {};
-  saveState(state);
-  render();
-});
-
-// Theme toggle
-els.toggleTheme.addEventListener("click", () => {
-  state.theme = (state.theme === "dark") ? "light" : "dark";
-  saveState(state);
-  applyTheme();
-});
-
-// Export / Import
-els.exportJson.addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "routine-tracker-export.json";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-});
-
-els.importFile.addEventListener("change", async (e) => {
-  const file = e.target.files?.[0];
-  if(!file) return;
-
-  try{
-    const text = await file.text();
-    const imported = JSON.parse(text);
-
-    // minimal validation
-    if(!imported || typeof imported !== "object") throw new Error("Invalid JSON");
-    if(!Array.isArray(imported.items)) throw new Error("Missing items array");
-    if(typeof imported.completion !== "object") throw new Error("Missing completion object");
-
-    // normalize + keep current theme if missing
-    state = {
-      theme: imported.theme === "light" ? "light" : "dark",
-      weekStartISO: imported.weekStartISO || toISODate(startOfWeekSaturday(new Date())),
-      selectedISO: imported.selectedISO || imported.weekStartISO || toISODate(new Date()),
-      items: imported.items.map(it => ({
-        id: it.id || uid(),
-        name: String(it.name || "").trim() || "Untitled",
-        category: CATEGORIES.includes(it.category) ? it.category : "Health",
-        desc: typeof it.desc === "string" ? it.desc : ""
-      })),
-      completion: imported.completion || {},
-      ui: imported.ui && typeof imported.ui === "object" ? imported.ui : { openDescByItemId: {} }
-    };
-
-    saveState(state);
-    applyTheme();
-    render();
-    alert("Import successful.");
-  }catch(err){
-    alert("Import failed: " + (err?.message || "Unknown error"));
-  }finally{
-    els.importFile.value = "";
-  }
-});
-
-// Init fixups
-(function init(){
-  if(!state.ui) state.ui = { openDescByItemId: {} };
-  if(!state.ui.openDescByItemId) state.ui.openDescByItemId = {};
-  if(!state.weekStartISO) state.weekStartISO = toISODate(startOfWeekSaturday(new Date()));
-  if(!state.selectedISO) state.selectedISO = state.weekStartISO;
-
-  // ensure categories exist on old items
-  state.items = (state.items || []).map(it => ({
-    id: it.id || uid(),
-    name: it.name || "Untitled",
-    category: CATEGORIES.includes(it.category) ? it.category : "Health",
-    desc: typeof it.desc === "string" ? it.desc : ""
-  }));
-
-  saveState(state);
-  render();
-})();
+els.confirmDays?.addEventListener("click", () => {
+  if(!newTaskDay
