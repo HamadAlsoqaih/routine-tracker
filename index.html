@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Routine Tracker</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="title">
+        <h1>Routine Tracker</h1>
+        <p class="sub">7-day week starting Saturday • saved locally</p>
+      </div>
+
+      <div class="actions">
+        <button id="toggleTheme" class="btn ghost" type="button" aria-pressed="true">🌙 Dark</button>
+        <button id="exportJson" class="btn" type="button">Export</button>
+
+        <label class="btn ghost file-btn" for="importFile">Import</label>
+        <input id="importFile" type="file" accept="application/json" hidden />
+
+        <button id="resetWeek" class="btn danger" type="button">Reset Week</button>
+      </div>
+    </header>
+
+    <main class="content">
+      <!-- LEFT: WEEK / DAYS -->
+      <section class="panel">
+        <div class="panel-head">
+          <h2>This Week</h2>
+          <div class="week-controls">
+            <button id="prevWeek" class="btn ghost" type="button">←</button>
+            <div id="weekLabel" class="week-label"></div>
+            <button id="nextWeek" class="btn ghost" type="button">→</button>
+          </div>
+        </div>
+
+        <div id="daysRow" class="days-row" aria-label="Days of week"></div>
+
+        <div class="day-summary">
+          <div>
+            <div class="muted">Selected day</div>
+            <div id="selectedDayLabel" class="selected-day"></div>
+          </div>
+          <div class="progress">
+            <div class="muted">Progress</div>
+            <div id="progressText" class="progress-text"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT: ROUTINE -->
+      <section class="panel">
+        <div class="panel-head stack">
+          <div class="head-row">
+            <h2>Routine Items</h2>
+
+            <div class="filters">
+              <button class="pill active" data-filter="All" type="button">All</button>
+              <button class="pill" data-filter="Health" type="button">Health</button>
+              <button class="pill" data-filter="Study" type="button">Study</button>
+              <button class="pill" data-filter="Work" type="button">Work</button>
+            </div>
+          </div>
+
+          <form id="addForm" class="add-form">
+            <input id="newItemInput" type="text" placeholder="Task name (e.g., Gym)" maxlength="60" />
+
+            <select id="newItemCategory" aria-label="Category">
+              <option value="Health">Health</option>
+              <option value="Study">Study</option>
+              <option value="Work">Work</option>
+            </select>
+
+            <textarea id="newItemDesc" rows="2" placeholder="Description (optional)"></textarea>
+
+            <button class="btn" type="submit">Add</button>
+          </form>
+        </div>
+
+        <div class="list" id="routineList" aria-label="Routine list"></div>
+
+        <div class="hint">
+          Tip: Select a day, then check items for that day. Streak = consecutive days done up to selected day.
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span class="muted">Data is stored in your browser (localStorage).</span>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
